@@ -1,0 +1,233 @@
+import os
+from datetime import date
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from snnpy.snn import SimulationParams
+from utils.simulate_trace import simulate_trace
+from utils.cross_validations import cross_validation_rf
+
+
+DATASET_PATH = "dati/mnist_rate_encoded.npz"
+CV_NUM_SPLITS = 10
+
+NUM_NEURONS = 1000
+MEMBRANE_THRESHOLD = 2
+REFRACTORY_PERIOD = 2
+NUM_OUTPUT_NEURONS = 35
+LEAK_COEFFICIENT = 0
+CURRENT_AMPLITUDE = MEMBRANE_THRESHOLD
+PRESYNAPTIC_DEGREE = 0.2  
+SMALL_WORLD_GRAPH_P = 0.2
+SMALL_WORLD_GRAPH_K = int(PRESYNAPTIC_DEGREE * NUM_NEURONS * 2)
+
+
+TRACE_TAU = 60
+NUM_WEIGHT_STEPS = 51  # how many mean_weight values to test
+
+# beta values to test (fraction of 2 * num_neurons)
+BETA_VALUES = [0.2, 0.3, 0.4]
+
+today_str = date.today().strftime("%Y_%m_%d")
+RESULTS_DIR = f"results_{today_str}"
+PARAM_NAME = "beta"
+CSV_NAME = os.path.join(
+    RESULTS_DIR,
+    f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv",
+)
+
+
+def load_dataset(filename: str):
+    """
+    Return (data, labels) from a .npz file.
+    """
+    npz_data = np.load(filename)
+    return npz_data["X"], npz_data["y"]
+
+
+def compute_critical_weight(
+    inputs: np.ndarray,
+    parameter_name: str,
+    parameter_value: float,
+):
+    """
+    Estimate the average input current and the critical synaptic weight.
+    """
+    beta = PRESYNAPTIC_DEGREE
+    current_amplitude = CURRENT_AMPLITUDE
+    membrane_threshold = MEMBRANE_THRESHOLD
+
+    if parameter_name == "beta":
+        beta = parameter_value
+    elif parameter_name == "current_amplitude":
+        current_amplitude = parameter_value
+    elif parameter_name == "membrane_threshold":
+        membrane_threshold = parameter_value
+
+    avg_input_current = (
+        np.sum(inputs)
+        / (NUM_NEURONS * inputs.shape[0] * inputs.shape[2])
+    )
+
+    critical_weight = (
+        membrane_threshold
+        - 2 * avg_input_current * current_amplitude * (REFRACTORY_PERIOD + 1)
+    ) / (beta * NUM_NEURONS)
+
+    return avg_input_current, critical_weight
+
+
+def test_parameter_values(data, labels , param_name: str, param_values: list[float]):
+    """
+    For each value in param_values:
+      - set the parameter in the SNN simulation
+      - sweep several mean_weight values
+      - run simulate_trace + cross_validation_rf
+
+    Returns:
+      list[dict]: each dict has keys: param_value, weight, accuracy
+    """
+    sim_params = SimulationParams(
+        num_neurons=NUM_NEURONS,
+        mean_weight=0.0,
+        weight_variance=0.0,
+        current_amplitude=CURRENT_AMPLITUDE,
+        num_output_neurons=NUM_OUTPUT_NEURONS,
+        is_random_uniform=False,
+        membrane_threshold=MEMBRANE_THRESHOLD,
+        leak_coefficient=LEAK_COEFFICIENT,
+        refractory_period=REFRACTORY_PERIOD,
+        small_world_graph_p=SMALL_WORLD_GRAPH_P,
+        small_world_graph_k=SMALL_WORLD_GRAPH_K,
+        input_spike_times=np.zeros(
+            (data.shape[1], data.shape[2]),
+            dtype=np.uint8,
+        ),
+    )
+
+    all_results: list[dict] = []
+
+    for param_value in param_values:
+        print(f"\n### Testing {param_name} = {param_value} ###")
+
+        # set the parameter we are testing
+        if param_name == "beta":
+            # convert beta to k = beta * 2 * N
+            sim_params.small_world_graph_k = int(param_value * NUM_NEURONS * 2)
+        elif param_name == "current_amplitude":
+            sim_params.current_amplitude = param_value
+        elif param_name == "membrane_threshold":
+            sim_params.membrane_threshold = param_value
+        else:
+            raise ValueError(f"Unknown parameter: {param_name}")
+
+        # recompute weight interval for THIS beta
+        _, critical_weight = compute_critical_weight(
+            data,
+            param_name,
+            param_value,
+        )
+        weight_values = np.linspace(
+            critical_weight / 100,
+            critical_weight * 1.4,
+            NUM_WEIGHT_STEPS,
+        )
+
+        for weight in weight_values:
+            print(f"\n--- mean_weight = {weight:.6f} ---")
+            sim_params.mean_weight = weight
+            sim_params.weight_variance = weight * 5
+
+            trace_dataset = simulate_trace(
+                data=data,
+                labels=labels,
+                parameters=sim_params,
+                trace_tau=TRACE_TAU,
+            )
+
+            mean_accuracy = cross_validation_rf(
+                trace_dataset,
+                n_splits=CV_NUM_SPLITS,
+            )
+            print("Mean accuracy:", mean_accuracy)
+
+            all_results.append(
+                {
+                    "param_value": float(param_value),
+                    "weight": float(weight),
+                    "accuracy": float(mean_accuracy),
+                }
+            )
+
+    return all_results
+
+
+def main():
+    os.makedirs("dati", exist_ok=True)
+
+    data, labels = load_dataset(DATASET_PATH)
+    print(f"Loaded data: {data.shape}, labels: {labels.shape}")
+
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
+    all_results = test_parameter_values(data, labels, PARAM_NAME, BETA_VALUES)
+
+    results_df = pd.DataFrame(all_results)
+    results_df.to_csv(CSV_NAME, index=False)
+    print(f"Saved results to {CSV_NAME}")
+
+    plt.figure()
+
+    for beta in BETA_VALUES:
+        beta_df = results_df[results_df["param_value"] == beta].copy()
+        beta_df = beta_df.sort_values(by="weight")
+
+        plt.plot(
+            beta_df["weight"],
+            beta_df["accuracy"],
+            marker="o",
+            label=f"beta={beta}",
+        )
+
+        # 80% segment
+        max_accuracy = beta_df["accuracy"].max()
+        threshold = 0.8 * max_accuracy
+
+        eligible = beta_df[beta_df["accuracy"] >= threshold]
+
+        if not eligible.empty:
+            w1 = eligible["weight"].min()
+            w2 = eligible["weight"].max()
+            segment_length = w2 - w1
+            print(
+                f"beta={beta} -> w1={w1:.6f}, "
+                f"w2={w2:.6f}, w2-w1={segment_length:.6f}"
+            )
+
+            plt.hlines(
+                y=threshold,
+                xmin=w1,
+                xmax=w2,
+                colors="black",
+                linestyles="dashed",
+            )
+        else:
+            print(f"beta={beta} -> no weights above 80% of max accuracy")
+
+    plt.xlabel("Mean synaptic weight")
+    plt.ylabel("Mean CV accuracy")
+    plt.title("Accuracy vs. weight for different beta values")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+
+    plot_path = os.path.join(RESULTS_DIR, f"beta_{NUM_WEIGHT_STEPS}.png")
+    plt.savefig(plot_path)
+    print(f"Saved plot to {plot_path}")
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
