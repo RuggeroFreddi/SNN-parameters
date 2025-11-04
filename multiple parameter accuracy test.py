@@ -30,12 +30,14 @@ SMALL_WORLD_GRAPH_K = int(PRESYNAPTIC_DEGREE * NUM_NEURONS * 2)
 TRACE_TAU = 60
 NUM_WEIGHT_STEPS = 51  # how many mean_weight values to test
 
-# beta values to test (fraction of 2 * num_neurons)
-BETA_VALUES = [0.2, 0.3, 0.4]
+PARAM_NAME = "beta" # possible value: "beta", "membrane_threshold", "current_amplitude"
+
+PARAMETER_VALUES = [0.2, 0.3, 0.4] # use it when PARM_NAME = "beta"
+# PARAMETER_VALUES = [2, 1.42963091165, 1.1048193827] # use it when PARM_NAME = "membrane_threshold"
+# PARAMETER_VALUES = [0.5, 1, 2] # use it when PARM_NAME = "current_amplitude"
 
 today_str = date.today().strftime("%Y_%m_%d")
 RESULTS_DIR = f"results_{today_str}"
-PARAM_NAME = "beta"
 CSV_NAME = os.path.join(
     RESULTS_DIR,
     f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv",
@@ -154,7 +156,6 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
         else:
             raise ValueError(f"Unknown parameter: {param_name}")
 
-        # recompute weight interval for THIS beta
         _, critical_weight = compute_critical_weight(
             data,
             param_name,
@@ -205,7 +206,7 @@ def main():
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    all_results = test_parameter_values(data, labels, PARAM_NAME, BETA_VALUES)
+    all_results = test_parameter_values(data, labels, PARAM_NAME, PARAMETER_VALUES)
 
     results_df = pd.DataFrame(all_results)
     results_df.to_csv(CSV_NAME, index=False)
@@ -216,28 +217,27 @@ def main():
 
     plt.figure()
 
-    for beta in BETA_VALUES:
-        beta_df = results_df[results_df["param_value"] == beta].copy()
-        beta_df = beta_df.sort_values(by="weight")
+    for parameter in PARAMETER_VALUES:
+        parameter_df = results_df[results_df["param_value"] == parameter].copy()
+        parameter_df = parameter_df.sort_values(by="weight")
 
         plt.plot(
-            beta_df["weight"],
-            beta_df["accuracy"],
+            parameter_df["weight"],
+            parameter_df["accuracy"],
             marker="o",
-            label=f"beta={beta}",
+            label=f"{PARAM_NAME}={parameter}",
         )
 
-        max_accuracy = beta_df["accuracy"].max()
+        max_accuracy = parameter_df["accuracy"].max()
         threshold = ACCURACY_THRESHOLD * max_accuracy
-        eligible = beta_df[beta_df["accuracy"] >= threshold]
+        eligible = parameter_df[parameter_df["accuracy"] >= threshold]
 
         if not eligible.empty:
             w1 = float(eligible["weight"].min())
             w2 = float(eligible["weight"].max())
             segment_length = float(w2 - w1)
 
-            # 🔹 salvo per questo beta
-            weight_segments[float(beta)] = {
+            weight_segments[float(parameter)] = {
                 "w1": w1,
                 "w2": w2,
                 "delta": segment_length,
@@ -252,7 +252,7 @@ def main():
             )
         else:
             # se non c'è segmento salvo comunque qualcosa di esplicito
-            weight_segments[float(beta)] = {
+            weight_segments[float(parameter)] = {
                 "w1": None,
                 "w2": None,
                 "delta": None,
@@ -262,18 +262,18 @@ def main():
     save_experiment_metadata(
         results_dir=RESULTS_DIR,
         parameter_name=PARAM_NAME,
-        parameter_values=BETA_VALUES,
+        parameter_values=PARAMETER_VALUES,
         weight_segments=weight_segments,
     )
 
     plt.xlabel("Mean synaptic weight")
     plt.ylabel("Mean CV accuracy")
-    plt.title("Accuracy vs. weight for different beta values")
+    plt.title(f"Accuracy vs. weight for different {PARAM_NAME} values")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
 
-    plot_path = os.path.join(RESULTS_DIR, f"beta_{NUM_WEIGHT_STEPS}.png")
+    plot_path = os.path.join(RESULTS_DIR, f"{PARAM_NAME}_{NUM_WEIGHT_STEPS}.png")
     plt.savefig(plot_path)
     print(f"Saved plot to {plot_path}")
     plt.show()
