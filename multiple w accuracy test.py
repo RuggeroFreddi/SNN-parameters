@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from snnpy.snn import SimulationParams
-from utils.simulate_trace import simulate_trace
+from utils.simulates import simulate_trace, simulate_statistic_features
 from utils.cross_validations import cross_validation_rf
 
 
@@ -21,7 +21,7 @@ PRESYNAPTIC_DEGREE = 0.2
 SMALL_WORLD_GRAPH_P = 0.2
 
 TRACE_TAU = 60
-NUM_WEIGHT_STEPS = 3  # how many weights to test
+NUM_WEIGHT_STEPS = 11  # how many weights to test
 
 
 def load_dataset(filename: str):
@@ -86,19 +86,25 @@ def main():
     )
 
     results = []  # list of (weight, accuracy)
-
+    cnt = 0
     for weight in weight_values:
-        print(f"\n--- Testing weight = {weight:.6f} ---")
+        cnt+= 1
+        print(f"\n--- Testing weight = {weight:.6f} ---test {cnt}/{NUM_WEIGHT_STEPS}")
         sim_params.mean_weight = weight
         sim_params.weight_variance = weight * 5
 
-        trace_dataset = simulate_trace(
+        """trace_dataset, _ = simulate_trace(
             data=data,
             labels=labels,
             parameters=sim_params,
             trace_tau=TRACE_TAU,
-        )
+        )"""
 
+        trace_dataset, _ = simulate_statistic_features(
+            data=data,
+            labels=labels,
+            parameters=sim_params,
+        )
         mean_accuracy = cross_validation_rf(trace_dataset, CV_NUM_SPLITS)
         print("Mean accuracy:", mean_accuracy)
 

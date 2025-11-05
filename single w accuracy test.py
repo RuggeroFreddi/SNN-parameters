@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from snnpy.snn import SimulationParams
-from utils.simulate_trace import simulate_trace
+from utils.simulates import simulate_trace, simulate_statistic_features
 from utils.cross_validations import cross_validation_rf
 
 
@@ -47,18 +47,15 @@ def compute_critical_weight(inputs: np.ndarray):
 
     return avg_input_current, critical_weight
 
-
 def main():
-    # make sure the data directory exists
     os.makedirs("dati", exist_ok=True)
 
-    # load rate-encoded dataset
     data, labels = load_dataset(DATASET_PATH)
     print(f"Loaded data: {data.shape}, labels: {labels.shape}")
 
     _, critical_weight = compute_critical_weight(data)
     print(critical_weight)
-    critical_weight = 0.0038
+    # critical_weight = 0.0038 
 
     small_world_graph_k = int(PRESYNAPTIC_DEGREE * NUM_NEURONS * 2)
 
@@ -78,17 +75,24 @@ def main():
             dtype=np.uint8,
         ),
     )
+    
+    """trace_dataset, _ = simulate_trace(
+            data=data,
+            labels=labels,
+            parameters=sim_params,
+            trace_tau=TRACE_TAU,
+    )"""
 
-    trace_dataset = simulate_trace(
+    trace_df, avg_spike_count = simulate_statistic_features(
         data=data,
         labels=labels,
         parameters=sim_params,
-        trace_tau=TRACE_TAU,
     )
 
-    mean_accuracy = cross_validation_rf(trace_dataset, CV_NUM_SPLITS)
-    print("mean accuracy: ", mean_accuracy)
+    print("avg spike count:", avg_spike_count)
 
+    mean_accuracy = cross_validation_rf(trace_df, CV_NUM_SPLITS)
+    print("mean accuracy:", mean_accuracy)
 
 if __name__ == "__main__":
     main()

@@ -7,11 +7,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from snnpy.snn import SimulationParams
-from utils.simulate_trace import simulate_trace
+from utils.simulates import simulate_trace, simulate_statistic_features
 from utils.cross_validations import cross_validation_rf
 
+TASK = "MNIST" # possible values: "MNIST"
+OUTPUT_FEATURES = "statistics" # possible values: "statistics", "trace"
 
-DATASET_PATH = "dati/mnist_rate_encoded.npz"
+if TASK=="MNIST": 
+    DATASET_PATH = "dati/mnist_rate_encoded.npz"
+else:
+    print("selected unknown task.")
+    exit()
 CV_NUM_SPLITS = 10
 
 ACCURACY_THRESHOLD = 0.8
@@ -19,7 +25,7 @@ ACCURACY_THRESHOLD = 0.8
 NUM_NEURONS = 1000
 MEMBRANE_THRESHOLD = 2
 REFRACTORY_PERIOD = 2
-NUM_OUTPUT_NEURONS = 35
+NUM_OUTPUT_NEURONS = 50
 LEAK_COEFFICIENT = 0
 CURRENT_AMPLITUDE = MEMBRANE_THRESHOLD
 PRESYNAPTIC_DEGREE = 0.2  
@@ -37,7 +43,7 @@ PARAMETER_VALUES = [0.2, 0.3, 0.4] # use it when PARM_NAME = "beta"
 # PARAMETER_VALUES = [0.5, 1, 2] # use it when PARM_NAME = "current_amplitude"
 
 today_str = date.today().strftime("%Y_%m_%d")
-RESULTS_DIR = f"results_{today_str}"
+RESULTS_DIR = f"results_{TASK}_{OUTPUT_FEATURES}_{today_str}"
 CSV_NAME = os.path.join(
     RESULTS_DIR,
     f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv",
@@ -54,6 +60,10 @@ def load_dataset(filename: str):
 def save_experiment_metadata(results_dir: str, parameter_name: str, parameter_values: list[float], weight_segments: dict[float, dict[str, float]]):
     """Save global parameters, tested parameter values, and weight segments to a YAML file."""
     metadata = {
+        "experiment" :{
+            "task": TASK,
+            "output_features": OUTPUT_FEATURES,
+        },
         "global_parameters": {
             "num_neurons": NUM_NEURONS,
             "membrane_threshold": MEMBRANE_THRESHOLD,
@@ -173,13 +183,21 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
             print(f"\n--- mean_weight = {weight:.6f} --- execution {cnt}/{NUM_WEIGHT_STEPS} with {param_name} = {param_value}")
             sim_params.mean_weight = weight
             sim_params.weight_variance = weight * 5
+            
+            if OUTPUT_FEATURES == "statistics":
+                trace_dataset, spike_count = simulate_statistic_features(
+                    data=data,
+                    labels=labels,
+                    parameters=sim_params,
+                )
+            elif OUTPUT_FEATURES == "trace":
+                trace_dataset, spike_count = simulate_trace(
+                    data=data,
+                    labels=labels,
+                    parameters=sim_params,
+                    trace_tau=TRACE_TAU,
+                )
 
-            trace_dataset, spike_count = simulate_trace(
-                data=data,
-                labels=labels,
-                parameters=sim_params,
-                trace_tau=TRACE_TAU,
-            )
 
             mean_accuracy = cross_validation_rf(
                 trace_dataset,

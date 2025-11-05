@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 👇 metti qui la cartella dove hai salvato i risultati
-RESULTS_DIR = "results_2025_11_03"  # cambia la data
+RESULTS_DIR = "results_MNIST_statistics_2025_11_04"  # cambia la data
 CSV_NAME = os.path.join(RESULTS_DIR, "experiment_beta_51.csv")
 YAML_NAME = os.path.join(RESULTS_DIR, "experiment_metadata.yaml")
 
