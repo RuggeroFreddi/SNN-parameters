@@ -36,14 +36,14 @@ SMALL_WORLD_GRAPH_K = int(PRESYNAPTIC_DEGREE * NUM_NEURONS * 2)
 TRACE_TAU = 60
 NUM_WEIGHT_STEPS = 51  # how many mean_weight values to test
 
-PARAM_NAME = "current_amplitude" # possible value: "beta", "membrane_threshold", "current_amplitude"
+PARAM_NAME = "membrane_threshold" # possible value: "beta", "membrane_threshold", "current_amplitude"
 
 # PARAMETER_VALUES = [0.2, 0.3, 0.4] # use it when PARM_NAME = "beta"
 # PARAMETER_VALUES = [2, 1.42963091165, 1.1048193827] # use it when PARM_NAME = "membrane_threshold"
 PARAMETER_VALUES = [0.5, 1, 2] # use it when PARM_NAME = "current_amplitude"
 
 today_str = date.today().strftime("%Y_%m_%d")
-RESULTS_DIR = f"results_{TASK}_{OUTPUT_FEATURES}_{today_str}"
+RESULTS_DIR = f"results_{TASK}_{OUTPUT_FEATURES}_{PARAM_NAME}_{today_str}"
 CSV_NAME = os.path.join(
     RESULTS_DIR,
     f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv",
