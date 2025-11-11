@@ -3,22 +3,23 @@ import pandas as pd
 import yaml
 
 # ================== PARAMETRI COME NEL TUO PROGRAMMA ==================
-TASK = "MNIST"  # "MNIST"
-OUTPUT_FEATURES = "trace"  # "statistics" | "trace"
+TASK = "TRAJECTORY"  # "MNIST", "TRAJECTORY"
+OUTPUT_FEATURES = "statistics"  # "statistics" | "trace"
 
 # questo è importante: nel tuo secondo programma la cartella ha anche il nome del parametro
 PARAM_NAME = "membrane_threshold"  # "beta" | "membrane_threshold" | "current_amplitude"
 
 # PARAMETER_VALUES = [0.2, 0.3, 0.4] # use it when PARM_NAME = "beta"
-PARAMETER_VALUES = [2, 1.42963091165, 1.1048193827] # use it when PARM_NAME = "membrane_threshold"
+# PARAMETER_VALUES = [2, 1.42963091165, 1.1048193827] # use it when PARM_NAME = "membrane_threshold" old
+PARAMETER_VALUES = [2, 1.35929932381, 1.03894898571] # use it when PARM_NAME = "membrane_threshold" new trajectory
 # PARAMETER_VALUES = [0.5, 1, 2] # use it when PARM_NAME = "current_amplitude"
 
 NUM_WEIGHT_STEPS = 51  # deve essere lo stesso di quando hai fatto l'esperimento
 # ======================================================================
 
 # ricostruiamo la stessa directory e lo stesso csv
-date_str = "2025_11_04"
-RESULTS_DIR = f"results_{TASK}_{OUTPUT_FEATURES}_{PARAM_NAME}_{date_str}"
+date_str = "2025_11_07"
+RESULTS_DIR = f"results/results_{TASK}_{OUTPUT_FEATURES}_{PARAM_NAME}_{date_str}"
 CSV_NAME = os.path.join(
     RESULTS_DIR,
     f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv",

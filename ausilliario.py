@@ -24,6 +24,7 @@ CURRENT_AMPLITUDE = MEMBRANE_THRESHOLD  # come nel tuo codice
 PRESYNAPTIC_DEGREE = 0.2
 SMALL_WORLD_GRAPH_P = 0.2
 SMALL_WORLD_GRAPH_K = int(PRESYNAPTIC_DEGREE * NUM_NEURONS * 2)
+MEMBRANE_RESET = False
 
 TRACE_TAU = 60
 NUM_WEIGHT_STEPS = 51
@@ -91,6 +92,7 @@ def save_experiment_metadata(
             "num_weight_steps": NUM_WEIGHT_STEPS,
             "cv_num_splits": CV_NUM_SPLITS,
             "accuracy_threshold": ACCURACY_THRESHOLD,
+            "membrane_reset": MEMBRANE_RESET,
         },
         "tested_parameter": {
             "name": PARAM_NAME,

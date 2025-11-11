@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent  # la cartella sopra utils
 sys.path.append(str(ROOT))
 from functions.simulates import simulate_trace, simulate_statistic_features
-from functions.cross_validations import cross_validation_rf
+from functions.cross_validations import cross_validation_rf, cross_validation_slp, cross_validation_lr
 
 
 DATASET_PATH = "dati/trajectory_spike_encoded.npz"
@@ -18,15 +18,15 @@ CV_NUM_SPLITS = 10
 NUM_NEURONS = 2000
 MEMBRANE_THRESHOLD = 2
 REFRACTORY_PERIOD = 2
-NUM_OUTPUT_NEURONS = 50
+NUM_OUTPUT_NEURONS = 800
 LEAK_COEFFICIENT = 0
 CURRENT_AMPLITUDE = MEMBRANE_THRESHOLD
 PRESYNAPTIC_DEGREE = 0.20
 SMALL_WORLD_GRAPH_P = 0.2
 
-TRACE_TAU = 60
-NUM_WEIGHT_STEPS = 51  # how many weights to test
-
+TRACE_TAU = 30
+NUM_WEIGHT_STEPS = 21  # how many weights to test
+MEMBRANE_RESET = True
 
 def load_dataset(filename: str):
     """
@@ -86,6 +86,7 @@ def main():
     weight_values = np.linspace(
         critical_weight / 100,
         critical_weight * 1.4,
+        #critical_weight * 1,
         NUM_WEIGHT_STEPS,
     )
 
@@ -97,41 +98,71 @@ def main():
         sim_params.mean_weight = weight
         sim_params.weight_variance = weight * 5
 
-        trace_dataset, _ = simulate_trace(
+        trace_dataset, avg_spike = simulate_trace(
             data=data,
             labels=labels,
             parameters=sim_params,
             trace_tau=TRACE_TAU,
+            membrane_reset= MEMBRANE_RESET,
         )
 
-        """trace_dataset, _ = simulate_statistic_features(
+        """trace_dataset, avg_spike = simulate_statistic_features(
             data=data,
             labels=labels,
             parameters=sim_params,
             statistic_set=2,
+            membrane_reset= MEMBRANE_RESET,
         )"""
+
+        mean_accuracy_rf, std_accuracy_rf = cross_validation_rf(trace_dataset, CV_NUM_SPLITS)
+        print("Mean accuracy: ", mean_accuracy_rf, "std accuracy: ", std_accuracy_rf, "avg spike: ", avg_spike)
+
+        mean_accuracy_slp, std_accuracy_slp = cross_validation_slp(trace_dataset, CV_NUM_SPLITS)
+        print("Mean accuracy: ", mean_accuracy_slp, "std accuracy: ", std_accuracy_slp, "avg spike: ", avg_spike)
+
+        results.append((weight, mean_accuracy_rf, std_accuracy_rf, mean_accuracy_slp, std_accuracy_slp))
         
-        mean_accuracy = cross_validation_rf(trace_dataset, CV_NUM_SPLITS)
-        print("Mean accuracy:", mean_accuracy)
+    weights_plot = []
+    acc_rf = []
+    std_rf = []
+    acc_slp = []
+    std_slp = []
 
-        results.append((weight, mean_accuracy))
 
-    # plot results in a single figure
-    weights_plot = [w for (w, _) in results]
-    accuracies_plot = [acc for (_, acc) in results]
+    for (w,
+         mean_accuracy_rf, std_accuracy_rf,
+         mean_accuracy_slp, std_accuracy_slp) in results:
+        weights_plot.append(w)
+        acc_rf.append(mean_accuracy_rf)
+        std_rf.append(std_accuracy_rf)
+        acc_slp.append(mean_accuracy_slp)
+        std_slp.append(std_accuracy_slp)
+
 
     plt.figure()
-    plt.plot(weights_plot, accuracies_plot, marker="o", label="Accuracy")
-    plt.axvline(x=critical_weight, color="red", linestyle="--", label="Critical weight")
+
+    # 1) Random Forest
+    plt.plot(weights_plot, acc_rf, marker="o", label="RF accuracy")
+    lower_rf = [m - s for m, s in zip(acc_rf, std_rf)]
+    upper_rf = [m + s for m, s in zip(acc_rf, std_rf)]
+    plt.fill_between(weights_plot, lower_rf, upper_rf, alpha=0.15)
+
+    # 2) SLP (o perceptron, dipende da cosa è cross_validation_slp)
+    plt.plot(weights_plot, acc_slp, marker="s", label="SLP accuracy")
+    lower_slp = [m - s for m, s in zip(acc_slp, std_slp)]
+    upper_slp = [m + s for m, s in zip(acc_slp, std_slp)]
+    plt.fill_between(weights_plot, lower_slp, upper_slp, alpha=0.15)
+
+    # linea del critical weight
+    plt.axvline(x=critical_weight, linestyle="--", label="Critical weight")
+
     plt.xlabel("Mean synaptic weight")
     plt.ylabel("Mean CV accuracy")
     plt.title("Accuracy vs. mean synaptic weight")
     plt.grid(True)
-    plt.legend()  # <- questa
+    plt.legend()
     plt.tight_layout()
     plt.show()
-
-
 
 if __name__ == "__main__":
     main()

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from snnpy.snn import SimulationParams
 from functions.simulates import simulate_trace, simulate_statistic_features
-from functions.cross_validations import cross_validation_rf
+from functions.cross_validations import cross_validation_rf, cross_validation_slp
 
 # the following global variables will be loaded using function load_config
 TASK = None
@@ -36,6 +36,8 @@ PARAMETER_VALUES = None
 DATASET_PATH = None
 RESULTS_DIR = None
 CSV_NAME = None
+STATISTIC_SET = None
+MEMBRANE_RESET = None
 
 def load_config(path: str = "settings/config.yaml"):
     global TASK, OUTPUT_FEATURES, CV_NUM_SPLITS, ACCURACY_THRESHOLD
@@ -44,6 +46,7 @@ def load_config(path: str = "settings/config.yaml"):
     global SMALL_WORLD_GRAPH_P, SMALL_WORLD_GRAPH_K, TRACE_TAU
     global NUM_WEIGHT_STEPS, PARAM_NAME, PARAMETER_VALUES
     global DATASET_PATH, CSV_NAME, RESULTS_DIR, STATISTIC_SET
+    global MEMBRANE_RESET
 
     if not os.path.exists(path):
         raise FileNotFoundError(f"Config non trovato: {path}")
@@ -74,6 +77,7 @@ def load_config(path: str = "settings/config.yaml"):
     NUM_WEIGHT_STEPS = cfg["NUM_WEIGHT_STEPS"]
     PARAM_NAME = cfg["PARAM_NAME"]
     PARAMETER_VALUES = cfg["PARAMETER_VALUES"]
+    MEMBRANE_RESET = cfg ["MEMBRANE_RESET"]
     
     if TASK=="MNIST": 
         DATASET_PATH = "dati/mnist_rate_encoded.npz"
@@ -99,7 +103,7 @@ def load_dataset(filename: str):
     Return (data, labels) from a .npz file.
     """
     npz_data = np.load(filename)
-    return npz_data["data"], npz_data["labels"]
+    return npz_data["X"], npz_data["y"]
 
 def _to_builtin(obj):
     # converte ricorsivamente numpy/pandas -> tipi Python
@@ -118,7 +122,8 @@ def _to_builtin(obj):
 def save_experiment_metadata(results_dir: str,
                              parameter_name: str,
                              parameter_values: list[float],
-                             weight_segments: dict[float, dict[str, float]],
+                             weight_segments_rf: dict[float, dict[str, float]],
+                             weight_segments_slp: dict[float, dict[str, float]],
                              mean_I):
     metadata = {
         "experiment" :{
@@ -140,12 +145,14 @@ def save_experiment_metadata(results_dir: str,
             "num_weight_steps": NUM_WEIGHT_STEPS,
             "cv_num_splits": CV_NUM_SPLITS,
             "accuracy_threshold": ACCURACY_THRESHOLD,
+            "membrane_reset": MEMBRANE_RESET,
         },
         "tested_parameter": {
             "name": parameter_name,
             "values": parameter_values,
         },
-        "weight_segments": weight_segments,
+        "weight_segments_rf": weight_segments_rf,
+        "weight_segments_slp": weight_segments_slp,
     }
 
     # 💡 qui puliamo tutto
@@ -242,7 +249,7 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
         else:
             raise ValueError(f"Unknown parameter: {param_name}")
 
-        input_current, critical_weight = compute_critical_weight(
+        _, critical_weight = compute_critical_weight(
             data,
             param_name,
             param_value,
@@ -267,6 +274,7 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
                     labels=labels,
                     parameters=sim_params,
                     statistic_set=STATISTIC_SET,
+                    membrane_reset = MEMBRANE_RESET,
                 )
             elif OUTPUT_FEATURES == "trace":
                 trace_dataset, spike_count = simulate_trace(
@@ -274,20 +282,30 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
                     labels=labels,
                     parameters=sim_params,
                     trace_tau=TRACE_TAU,
+                    membrane_reset = MEMBRANE_RESET,
                 )
 
 
-            mean_accuracy = cross_validation_rf(
+            mean_accuracy_rf, std_accuracy_rf = cross_validation_rf(
                 trace_dataset,
                 n_splits=CV_NUM_SPLITS,
             )
-            print("Mean accuracy:", mean_accuracy)
+            print("Mean accuracy: ", mean_accuracy_rf, " std accuracy: ", std_accuracy_rf)
+
+            mean_accuracy_slp, std_accuracy_slp = cross_validation_slp(
+                trace_dataset,
+                n_splits=CV_NUM_SPLITS,
+            )
+            print("Mean accuracy: ", mean_accuracy_slp, " std accuracy: ", std_accuracy_slp)
 
             all_results.append(
                 {
                     "param_value": float(param_value),
                     "weight": float(weight),
-                    "accuracy": float(mean_accuracy),
+                    "accuracy_rf": float(mean_accuracy_rf),
+                    "std_accuracy_rf": float(std_accuracy_rf),                    
+                    "accuracy_slp": float(mean_accuracy_slp),
+                    "std_accuracy_slp": float(std_accuracy_slp),
                     "spike_count": float(spike_count)
                 }
             )
@@ -311,69 +329,161 @@ def main():
     results_df.to_csv(CSV_NAME, index=False)
     print(f"Saved results to {CSV_NAME}")
 
-    # 🔹 qui raccogliamo i segmenti per ogni valore di parametro
-    weight_segments = {}
-
-    plt.figure()
+    # 🔹 calcolo solo i segmenti, senza plottare ancora
+    weight_segments_rf = {}
+    weight_segments_slp = {}
 
     for parameter in PARAMETER_VALUES:
         parameter_df = results_df[results_df["param_value"] == parameter].copy()
         parameter_df = parameter_df.sort_values(by="weight")
 
-        plt.plot(
-            parameter_df["weight"],
-            parameter_df["accuracy"],
-            marker="o",
-            label=f"{PARAM_NAME}={parameter}",
-        )
+        # ====== segmento RF ======
+        max_accuracy_rf = parameter_df["accuracy_rf"].max()
+        threshold_rf = ACCURACY_THRESHOLD * max_accuracy_rf
+        eligible_rf = parameter_df[parameter_df["accuracy_rf"] >= threshold_rf]
 
-        max_accuracy = parameter_df["accuracy"].max()
-        threshold = ACCURACY_THRESHOLD * max_accuracy
-        eligible = parameter_df[parameter_df["accuracy"] >= threshold]
-
-        if not eligible.empty:
-            w1 = float(eligible["weight"].min())
-            w2 = float(eligible["weight"].max())
-            segment_length = float(w2 - w1)
-
-            weight_segments[float(parameter)] = {
-                "w1": w1,
-                "w2": w2,
-                "delta": segment_length,
+        if not eligible_rf.empty:
+            w1_rf = float(eligible_rf["weight"].min())
+            w2_rf = float(eligible_rf["weight"].max())
+            segment_length_rf = float(w2_rf - w1_rf)
+            weight_segments_rf[float(parameter)] = {
+                "w1": w1_rf,
+                "w2": w2_rf,
+                "delta": segment_length_rf,
             }
-
-            plt.hlines(
-                y=threshold,
-                xmin=w1,
-                xmax=w2,
-                colors="black",
-                linestyles="dashed",
-            )
         else:
-            weight_segments[float(parameter)] = {
+            weight_segments_rf[float(parameter)] = {
                 "w1": None,
                 "w2": None,
                 "delta": None,
             }
-        # 🔹 ora che abbiamo tutto, salviamo il metadata in YAML
+
+        # ====== segmento SLP ======
+        max_accuracy_slp = parameter_df["accuracy_slp"].max()
+        threshold_slp = ACCURACY_THRESHOLD * max_accuracy_slp
+        eligible_slp = parameter_df[parameter_df["accuracy_slp"] >= threshold_slp]
+
+        if not eligible_slp.empty:
+            w1_slp = float(eligible_slp["weight"].min())
+            w2_slp = float(eligible_slp["weight"].max())
+            segment_length_slp = float(w2_slp - w1_slp)
+            weight_segments_slp[float(parameter)] = {
+                "w1": w1_slp,
+                "w2": w2_slp,
+                "delta": segment_length_slp,
+            }
+        else:
+            weight_segments_slp[float(parameter)] = {
+                "w1": None,
+                "w2": None,
+                "delta": None,
+            }
+
+    # 🔹 salvataggio metadata
     save_experiment_metadata(
         results_dir=RESULTS_DIR,
         parameter_name=PARAM_NAME,
         parameter_values=PARAMETER_VALUES,
-        weight_segments=weight_segments,
-        mean_I = mean_I,
+        weight_segments_rf=weight_segments_rf,
+        weight_segments_slp=weight_segments_slp,
+        mean_I=mean_I,
     )
-    plt.xlabel("Mean synaptic weight")
-    plt.ylabel("Mean CV accuracy")
-    plt.title(f"Accuracy vs. weight for different {PARAM_NAME} values")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
 
-    plot_path = os.path.join(RESULTS_DIR, f"{PARAM_NAME}_{NUM_WEIGHT_STEPS}.png")
-    plt.savefig(plot_path)
-    print(f"Saved plot to {plot_path}")
+    # === FIGURE SEPARATE ===
+    plt_rf = plt.figure()
+    ax_rf = plt_rf.add_subplot(111)
+
+    plt_slp = plt.figure()
+    ax_slp = plt_slp.add_subplot(111)
+
+    for parameter in PARAMETER_VALUES:
+        parameter_df = results_df[results_df["param_value"] == parameter].copy()
+        parameter_df = parameter_df.sort_values(by="weight")
+
+        # ----- RF -----
+        line_rf, = ax_rf.plot(
+            parameter_df["weight"],
+            parameter_df["accuracy_rf"],
+            marker="o",
+            label=f"RF – {PARAM_NAME}={parameter}",
+        )
+        lower_rf = parameter_df["accuracy_rf"] - parameter_df["std_accuracy_rf"]
+        upper_rf = parameter_df["accuracy_rf"] + parameter_df["std_accuracy_rf"]
+        ax_rf.fill_between(
+            parameter_df["weight"],
+            lower_rf,
+            upper_rf,
+            color=line_rf.get_color(),
+            alpha=0.2,
+        )
+
+        # qui posso riusare il segmento già calcolato
+        seg_rf = weight_segments_rf[float(parameter)]
+        if seg_rf["w1"] is not None:
+            max_accuracy_rf = parameter_df["accuracy_rf"].max()
+            threshold_rf = ACCURACY_THRESHOLD * max_accuracy_rf
+            ax_rf.hlines(
+                y=threshold_rf,
+                xmin=seg_rf["w1"],
+                xmax=seg_rf["w2"],
+                colors="black",
+                linestyles="dashed",
+            )
+
+        # ----- SLP -----
+        line_slp, = ax_slp.plot(
+            parameter_df["weight"],
+            parameter_df["accuracy_slp"],
+            marker="s",
+            linestyle="--",
+            label=f"SLP – {PARAM_NAME}={parameter}",
+        )
+        lower_slp = parameter_df["accuracy_slp"] - parameter_df["std_accuracy_slp"]
+        upper_slp = parameter_df["accuracy_slp"] + parameter_df["std_accuracy_slp"]
+        ax_slp.fill_between(
+            parameter_df["weight"],
+            lower_slp,
+            upper_slp,
+            color=line_slp.get_color(),
+            alpha=0.2,
+        )
+
+        seg_slp = weight_segments_slp[float(parameter)]
+        if seg_slp["w1"] is not None:
+            max_accuracy_slp = parameter_df["accuracy_slp"].max()
+            threshold_slp = ACCURACY_THRESHOLD * max_accuracy_slp
+            ax_slp.hlines(
+                y=threshold_slp,
+                xmin=seg_slp["w1"],
+                xmax=seg_slp["w2"],
+                colors="black",
+                linestyles="dashed",
+            )
+
+    # setup RF
+    ax_rf.set_xlabel("Mean synaptic weight")
+    ax_rf.set_ylabel("Mean CV accuracy (RF)")
+    ax_rf.set_title(f"RF – accuracy vs. weight for different {PARAM_NAME} values")
+    ax_rf.grid(True)
+    ax_rf.legend()
+    plt_rf.tight_layout()
+    plot_path_rf = os.path.join(RESULTS_DIR, f"{PARAM_NAME}_{NUM_WEIGHT_STEPS}_rf.png")
+    plt_rf.savefig(plot_path_rf)
+    print(f"Saved RF plot to {plot_path_rf}")
+
+    # setup SLP
+    ax_slp.set_xlabel("Mean synaptic weight")
+    ax_slp.set_ylabel("Mean CV accuracy (SLP)")
+    ax_slp.set_title(f"SLP – accuracy vs. weight for different {PARAM_NAME} values")
+    ax_slp.grid(True)
+    ax_slp.legend()
+    plt_slp.tight_layout()
+    plot_path_slp = os.path.join(RESULTS_DIR, f"{PARAM_NAME}_{NUM_WEIGHT_STEPS}_slp.png")
+    plt_slp.savefig(plot_path_slp)
+    print(f"Saved SLP plot to {plot_path_slp}")
+
     plt.show()
+
 
 if __name__ == "__main__":
     main()

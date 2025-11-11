@@ -90,8 +90,8 @@ def main():
 
     print("avg spike count:", avg_spike_count)
 
-    mean_accuracy = cross_validation_rf(trace_df, CV_NUM_SPLITS)
-    print("mean accuracy:", mean_accuracy)
+    mean_accuracy, std_accuracy = cross_validation_rf(trace_df, CV_NUM_SPLITS)
+    print("mean accuracy:", mean_accuracy, "std accuracy", std_accuracy)
 
 if __name__ == "__main__":
     main()

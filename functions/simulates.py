@@ -3,15 +3,15 @@ import numpy as np
 import pandas as pd
 
 
-def simulate_trace(data, labels, parameters, trace_tau):
+def simulate_trace(data, labels, parameters, trace_tau, membrane_reset = True):
     # configuration constants
-    START_INDEX = 700              # first neuron to keep
-    EXCLUDED_TAIL_NEURONS = 200    # how many neurons to drop from the very end
+    START_INDEX = parameters.num_neurons-parameters.num_output_neurons - 100          # first neuron to keep
+    num_trace = parameters.num_output_neurons
 
     snn = SNN(parameters)
     initial_membrane_potentials = snn.get_membrane_potentials()
 
-    end_index = parameters.num_neurons - EXCLUDED_TAIL_NEURONS
+    end_index = START_INDEX + num_trace
     kept_indices = list(range(START_INDEX, end_index))
     rows = []
     
@@ -24,7 +24,8 @@ def simulate_trace(data, labels, parameters, trace_tau):
         label = labels[i]
 
         snn.set_input_spike_times(sample)
-        snn.set_membrane_potentials(initial_membrane_potentials)
+        if membrane_reset:
+            snn.set_membrane_potentials(initial_membrane_potentials)
         snn.simulate(trace_tau=trace_tau, reset_trace=True)
         avg_spike_count += snn.tot_spikes
         trace = np.asarray(snn.get_trace()).reshape(-1)
@@ -42,7 +43,7 @@ def simulate_trace(data, labels, parameters, trace_tau):
     df = pd.DataFrame(rows, columns=columns)
     return df, avg_spike_count / len(data)
 
-def simulate_statistic_features(data, labels, parameters, statistic_set=1):
+def simulate_statistic_features(data, labels, parameters, statistic_set=1, membrane_reset = True):
     """Simulate SNN and build a feature table (4 features per neuron + label)."""
     snn = SNN(parameters)
     initial_membrane_potentials = snn.get_membrane_potentials()
@@ -59,7 +60,8 @@ def simulate_statistic_features(data, labels, parameters, statistic_set=1):
         label = labels[i]
 
         snn.set_input_spike_times(sample)
-        snn.set_membrane_potentials(initial_membrane_potentials)
+        if membrane_reset:
+            snn.set_membrane_potentials(initial_membrane_potentials)
         snn.simulate(trace_tau=10, reset_trace=True)
 
         avg_spike_count += snn.tot_spikes
