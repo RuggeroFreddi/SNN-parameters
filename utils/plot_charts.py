@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 
 TASK = "MNIST"  # possible values: "MNIST", "TRAJECTORY"
 OUTPUT_FEATURES = "statistics"  # possible values: "statistics", "trace"
-PARAM_NAME = "beta"  # possible value: "beta", "membrane_threshold", "current_amplitude"
+PARAM_NAME = "membrane_threshold"  # possible value: "beta", "membrane_threshold", "current_amplitude"
 NUM_WEIGHT_STEPS = 51
-DATE = "2025_11_10"
+DATE = "2025_11_11"
 
 RESULTS_DIR = f"results/results_{TASK}_{OUTPUT_FEATURES}_{PARAM_NAME}_{DATE}"
 CSV_NAME = os.path.join(RESULTS_DIR, f"experiment_{PARAM_NAME}_{NUM_WEIGHT_STEPS}.csv")
@@ -20,11 +20,19 @@ def load_metadata(yaml_path: str):
     return metadata
 
 
-def plot_accuracy_model(results_df: pd.DataFrame, metadata: dict,
-                        acc_col: str, std_col: str, model_name: str, filename: str):
+def plot_metric_model(
+    results_df: pd.DataFrame,
+    metadata: dict,
+    metric_col: str,
+    std_col: str | None,
+    model_name: str,
+    ylabel: str,
+    filename: str,
+):
     """
-    Disegna accuracy vs peso con area (std) per tutti i valori del parametro testato.
-    acc_col e std_col sono i nomi delle colonne, es. 'accuracy_rf', 'std_accuracy_rf'
+    Disegna METRICA (es. accuracy/F1) vs peso con area (std) per tutti i valori del parametro testato.
+    metric_col/std_col sono i nomi delle colonne del CSV, es. 'accuracy_rf', 'std_accuracy_rf', 'f1_slp', 'std_f1_slp'.
+    Se std_col non è presente nel dataframe o è None, l'area non viene disegnata.
     """
     param_values = metadata["tested_parameter"]["values"]
     accuracy_threshold = metadata["global_parameters"]["accuracy_threshold"]
@@ -45,15 +53,15 @@ def plot_accuracy_model(results_df: pd.DataFrame, metadata: dict,
 
         line, = plt.plot(
             parameter_df["weight"],
-            parameter_df[acc_col],
+            parameter_df[metric_col],
             marker="o",
             label=f"{PARAM_NAME}={value}",
         )
 
-        # shaded area con la std
-        if std_col in parameter_df.columns:
-            lower = parameter_df[acc_col] - parameter_df[std_col]
-            upper = parameter_df[acc_col] + parameter_df[std_col]
+        # shaded area con la std (se presente)
+        if std_col and std_col in parameter_df.columns:
+            lower = parameter_df[metric_col] - parameter_df[std_col]
+            upper = parameter_df[metric_col] + parameter_df[std_col]
             plt.fill_between(
                 parameter_df["weight"],
                 lower,
@@ -63,9 +71,9 @@ def plot_accuracy_model(results_df: pd.DataFrame, metadata: dict,
             )
 
         # segmento sopra la soglia relativa (rispetto al max di questo parametro)
-        max_accuracy = parameter_df[acc_col].max()
-        threshold = accuracy_threshold * max_accuracy
-        eligible = parameter_df[parameter_df[acc_col] >= threshold]
+        max_metric = parameter_df[metric_col].max()
+        threshold = accuracy_threshold * max_metric
+        eligible = parameter_df[parameter_df[metric_col] >= threshold]
         if not eligible.empty:
             w1 = eligible["weight"].min()
             w2 = eligible["weight"].max()
@@ -86,14 +94,14 @@ def plot_accuracy_model(results_df: pd.DataFrame, metadata: dict,
     )
 
     plt.xlabel("Mean synaptic weight")
-    plt.ylabel("Mean CV accuracy")
-    plt.title(f"{model_name}: accuracy vs weight for different {PARAM_NAME} values")
+    plt.ylabel(ylabel)
+    plt.title(f"{model_name}: {ylabel} vs weight for different {PARAM_NAME} values")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
 
     plot_path = os.path.join(RESULTS_DIR, filename)
-    plt.savefig(plot_path)
+    plt.savefig(plot_path, dpi=150)
     print(f"saved {plot_path}")
 
 
@@ -121,35 +129,60 @@ def plot_spike_count(results_df: pd.DataFrame, metadata: dict):
     plt.tight_layout()
 
     plot_path = os.path.join(RESULTS_DIR, "plot_spike_count.png")
-    plt.savefig(plot_path)
+    plt.savefig(plot_path, dpi=150)
     print(f"saved {plot_path}")
 
 
 def main():
+    # Il CSV ora include: param_value, weight, accuracy_rf/std, accuracy_slp/std, f1_rf/std, f1_slp/std, spike_count
     results_df = pd.read_csv(CSV_NAME)
     metadata = load_metadata(YAML_NAME)
 
-    # grafico per random forest
-    plot_accuracy_model(
+    # ACCURACY — Random Forest
+    plot_metric_model(
         results_df,
         metadata,
-        acc_col="accuracy_rf",
+        metric_col="accuracy_rf",
         std_col="std_accuracy_rf",
         model_name="Random Forest",
+        ylabel="Mean CV accuracy",
         filename="plot_accuracy_rf.png",
     )
 
-    # grafico per single-layer perceptron
-    plot_accuracy_model(
+    # ACCURACY — Single-layer perceptron
+    plot_metric_model(
         results_df,
         metadata,
-        acc_col="accuracy_slp",
+        metric_col="accuracy_slp",
         std_col="std_accuracy_slp",
         model_name="Single-layer perceptron",
+        ylabel="Mean CV accuracy",
         filename="plot_accuracy_slp.png",
     )
 
-    # opzionale: spike
+    # F1 — Random Forest
+    plot_metric_model(
+        results_df,
+        metadata,
+        metric_col="f1_rf",
+        std_col="std_f1_rf",
+        model_name="Random Forest",
+        ylabel="Mean CV F1",
+        filename="plot_f1_rf.png",
+    )
+
+    # F1 — Single-layer perceptron
+    plot_metric_model(
+        results_df,
+        metadata,
+        metric_col="f1_slp",
+        std_col="std_f1_slp",
+        model_name="Single-layer perceptron",
+        ylabel="Mean CV F1",
+        filename="plot_f1_slp.png",
+    )
+
+    # opzionale: spike count
     plot_spike_count(results_df, metadata)
 
     plt.show()
