@@ -286,13 +286,13 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
                 )
 
 
-            mean_accuracy_rf, std_accuracy_rf = cross_validation_rf(
+            mean_accuracy_rf, std_accuracy_rf, mean_f1_rf, std_f1_rf, mean_mcc_rf, std_mcc_rf = cross_validation_rf(
                 trace_dataset,
                 n_splits=CV_NUM_SPLITS,
             )
             print("Mean accuracy: ", mean_accuracy_rf, " std accuracy: ", std_accuracy_rf)
 
-            mean_accuracy_slp, std_accuracy_slp = cross_validation_slp(
+            mean_accuracy_slp, std_accuracy_slp, mean_f1_slp, std_f1_slp, mean_mcc_slp, std_mcc_slp = cross_validation_slp(
                 trace_dataset,
                 n_splits=CV_NUM_SPLITS,
             )
@@ -306,6 +306,14 @@ def test_parameter_values(data, labels , param_name: str, param_values: list[flo
                     "std_accuracy_rf": float(std_accuracy_rf),                    
                     "accuracy_slp": float(mean_accuracy_slp),
                     "std_accuracy_slp": float(std_accuracy_slp),
+                    "f1_rf": float(mean_f1_rf),
+                    "std_f1_rf": float(std_f1_rf),                    
+                    "f1_slp": float(mean_f1_slp),
+                    "std_f1_slp": float(std_f1_slp),
+                    "mcc_rf": float(mean_mcc_rf),
+                    "std_mcc_rf": float(std_mcc_rf),                    
+                    "mcc_slp": float(mean_mcc_slp),
+                    "std_mcc_slp": float(std_mcc_slp),
                     "spike_count": float(spike_count)
                 }
             )
